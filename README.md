@@ -1,32 +1,27 @@
-# React + TypeScript + Vite
+# OpenRAC
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+OpenRAC is a browser app built with React, TypeScript, and Vite.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The sound-level demo uses `getUserMedia` and the Web Audio API. Select dBFS,
+unweighted dB SPL, A/B/C-weighted levels, or rolling 1-second dBAeq. Microphone
+access requires HTTPS or `localhost`.
+
+For absolute SPL readings, start the microphone and calibrate it using a 1 kHz
+acoustic sound calibrator set to 94 or 114 dB SPL. The app saves the calibration
+offset locally for the active microphone. Disable operating-system enhancements
+as well; browsers may not honor requests to disable automatic gain control,
+noise suppression, and echo cancellation on every device. Accuracy depends on
+the microphone and the entire audio input chain, so this is not a certified
+sound-level meter.
+
+To add an npm dependency, install it with `npm install <package>` and import it
+from your app code. Check that the package supports browsers: React Native
+packages such as `react-native-microphone-stream` depend on native APIs and
+cannot be used directly in this Vite web app.
