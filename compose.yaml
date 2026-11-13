@@ -1,6 +1,6 @@
 services:
   openrac:
-    build: .
+    image: ghcr.io/rasmaki/openrac:latest
     ports:
       - "18763:80"
     restart: unless-stopped

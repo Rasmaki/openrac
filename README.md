@@ -11,17 +11,43 @@ npm run dev
 
 ## Run with Docker Compose
 
+Create a `compose.yaml` file with the following content:
+
+```yaml
+services:
+  openrac:
+    image: ghcr.io/rasmaki/openrac:latest
+    ports:
+      - "18763:80"
+    restart: unless-stopped
+```
+
+In the same directory, run:
+
 ```sh
-docker compose up --build -d
+docker compose up -d
 ```
 
 Open `http://localhost:18763`. To stop the app, run `docker compose down`.
 Port 18763 is an arbitrary host port; change the left side of `18763:80` in
 `compose.yaml` if it is already in use.
 
+To update the image, run `docker compose pull` followed by `docker compose up -d`.
+The image supports Linux on AMD64 and ARM64.
+
 Microphone access requires HTTPS or localhost. For access from another device,
 serve the app over HTTPS using a reverse proxy. The microphone is accessed by
 the client's browser and does not need to be passed into the container.
+
+### Publishing the image
+
+The GitHub Actions workflow publishes `ghcr.io/rasmaki/openrac:latest` on pushes
+to `master` and can also be run manually from `master`. After the first successful
+publication, the repository owner must set the package visibility to **Public** in
+its GitHub Packages settings so that others can pull it without signing in.
+
+To build the image locally from a checkout instead, run
+`docker build -t openrac:local .` and change the Compose image to `openrac:local`.
 
 The sound-level demo uses `getUserMedia` and the Web Audio API. It displays dBFS,
 unweighted dB SPL, A/B/C-weighted levels, rolling 1-second dBAeq, a live FFT
