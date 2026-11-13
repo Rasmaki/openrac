@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-ssr
+.git
+.idea
+.vscode
+*.log
+*.local
+.env
+.env.*

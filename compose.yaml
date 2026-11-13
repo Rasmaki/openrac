@@ -1,0 +1,6 @@
+services:
+  openrac:
+    build: .
+    ports:
+      - "18763:80"
+    restart: unless-stopped

@@ -139,44 +139,103 @@ class AudioMeterProcessor extends AudioWorkletProcessor {
     this.eqIndex = 0
     this.totalSamples = 0
     this.reportSamples = 0
-    this.intervalSums = { raw: 0, a: 0, b: 0, c: 0 }
+    this.intervalRawSum = 0
     this.intervalSamples = 0
     this.intervalPeak = 0
-    this.intervalChunks = 0
-    this.reportEvery = Math.max(1, Math.round(sampleRate / 10))
+    this.intervalCPeak = 0
+    this.monitorSize = 18000
+    this.monitorRing = new Float64Array(this.monitorSize)
+    this.monitorSampleRing = new Uint32Array(this.monitorSize)
+    this.monitorClipRing = new Uint8Array(this.monitorSize)
+    this.monitorGeneration = 0
+    this.monitorAvailable = false
+    this.resetMonitor()
+    this.port.onmessage = (event) => {
+      if (['reset-monitor', 'reset-peaks', 'reset-average'].includes(event.data?.type)) {
+        if (event.data.type !== 'reset-average') this.resetPeaks()
+        if (event.data.type !== 'reset-peaks') this.resetAverage()
+        this.monitorGeneration = event.data.generation
+      }
+    }
+  }
+
+  resetMonitor() {
+    this.resetPeaks()
+    this.resetAverage()
+  }
+
+  resetPeaks() {
+    this.monitorRawPeak = 0
+    this.monitorCPeak = 0
+    this.monitorClipped = false
+    this.heldIntervalPeak = 0
+    this.heldIntervalCPeak = 0
+  }
+
+  resetAverage() {
+    this.monitorRing.fill(0)
+    this.monitorSampleRing.fill(0)
+    this.monitorClipRing.fill(0)
+    this.monitorIndex = 0
+    this.monitorSum = 0
+    this.intervalASum = 0
+    this.averageIntervalSamples = 0
+    this.averageIntervalClipped = false
+    this.monitorSamples = 0
+    this.monitorClippedBlocks = 0
   }
 
   process(inputs, outputs) {
     for (const channel of outputs[0] ?? []) channel.fill(0)
 
     const input = inputs[0]?.[0]
+    if (!!input !== this.monitorAvailable) this.resetMonitor()
+    this.monitorAvailable = !!input
     const frames = input?.length ?? outputs[0]?.[0]?.length ?? 128
-    this.intervalChunks += 1
 
     for (let index = 0; index < frames; index += 1) {
       const raw = input?.[index] ?? 0
       const a = filterSample(this.filters.a, raw)
       const b = filterSample(this.filters.b, raw)
       const c = filterSample(this.filters.c, raw)
-      const powers = { raw: raw * raw, a: a * a, b: b * b, c: c * c }
+      const rawMagnitude = Math.abs(raw)
+      const cMagnitude = Math.abs(c)
+      const rawPower = raw * raw
+      const aPower = a * a
+      const bPower = b * b
+      const cPower = c * c
+      const ringIndex = this.ringIndex
+      const rings = this.meterRings
+      const sums = this.meterSums
+      sums.raw += rawPower - rings.raw[ringIndex]
+      sums.a += aPower - rings.a[ringIndex]
+      sums.b += bPower - rings.b[ringIndex]
+      sums.c += cPower - rings.c[ringIndex]
+      rings.raw[ringIndex] = rawPower
+      rings.a[ringIndex] = aPower
+      rings.b[ringIndex] = bPower
+      rings.c[ringIndex] = cPower
+      this.intervalRawSum += rawPower
+      this.intervalASum += aPower
+      this.averageIntervalSamples += 1
+      this.averageIntervalClipped ||= rawMagnitude >= 0.999
 
-      for (const kind of ['raw', 'a', 'b', 'c']) {
-        this.meterSums[kind] += powers[kind] - this.meterRings[kind][this.ringIndex]
-        this.meterRings[kind][this.ringIndex] = powers[kind]
-        this.intervalSums[kind] += powers[kind]
-      }
-
-      this.eqSum += powers.a - this.eqRing[this.eqIndex]
-      this.eqRing[this.eqIndex] = powers.a
-      this.eqIndex = (this.eqIndex + 1) % this.eqSize
-      this.ringIndex = (this.ringIndex + 1) % this.windowSize
-      this.intervalPeak = Math.max(this.intervalPeak, Math.abs(raw))
+      this.eqSum += aPower - this.eqRing[this.eqIndex]
+      this.eqRing[this.eqIndex] = aPower
+      this.eqIndex += 1
+      if (this.eqIndex === this.eqSize) this.eqIndex = 0
+      this.ringIndex += 1
+      if (this.ringIndex === this.windowSize) this.ringIndex = 0
+      this.intervalPeak = Math.max(this.intervalPeak, rawMagnitude)
+      this.intervalCPeak = Math.max(this.intervalCPeak, cMagnitude)
+      this.heldIntervalPeak = Math.max(this.heldIntervalPeak, rawMagnitude)
+      this.heldIntervalCPeak = Math.max(this.heldIntervalCPeak, cMagnitude)
       this.intervalSamples += 1
       this.totalSamples += 1
-      this.reportSamples += 1
+      this.reportSamples += 10
 
-      if (this.reportSamples >= this.reportEvery) {
-        this.reportSamples -= this.reportEvery
+      if (this.reportSamples >= sampleRate) {
+        this.reportSamples -= sampleRate
         this.report()
       }
     }
@@ -189,6 +248,19 @@ class AudioMeterProcessor extends AudioWorkletProcessor {
     const eqDivisor = Math.min(this.totalSamples, this.eqSize)
     const intervalSamples = this.intervalSamples
     const intervalDivisor = Math.max(1, intervalSamples)
+    const clipped = this.averageIntervalClipped ? 1 : 0
+    if (this.monitorAvailable) {
+      this.monitorSum += this.intervalASum - this.monitorRing[this.monitorIndex]
+      this.monitorSamples += this.averageIntervalSamples - this.monitorSampleRing[this.monitorIndex]
+      this.monitorClippedBlocks += clipped - this.monitorClipRing[this.monitorIndex]
+      this.monitorRing[this.monitorIndex] = this.intervalASum
+      this.monitorSampleRing[this.monitorIndex] = this.averageIntervalSamples
+      this.monitorClipRing[this.monitorIndex] = clipped
+      this.monitorIndex = (this.monitorIndex + 1) % this.monitorSize
+      this.monitorRawPeak = Math.max(this.monitorRawPeak, this.heldIntervalPeak)
+      this.monitorCPeak = Math.max(this.monitorCPeak, this.heldIntervalCPeak)
+      this.monitorClipped ||= this.heldIntervalPeak >= 0.999
+    }
 
     this.port.postMessage({
       rms: {
@@ -198,16 +270,29 @@ class AudioMeterProcessor extends AudioWorkletProcessor {
         c: Math.sqrt(Math.max(0, this.meterSums.c) / meterDivisor),
         aeq: Math.sqrt(Math.max(0, this.eqSum) / eqDivisor),
       },
-      intervalRawPower: this.intervalSums.raw / intervalDivisor,
+      intervalRawPower: this.intervalRawSum / intervalDivisor,
       intervalSamples,
       peak: this.intervalPeak,
-      chunks: this.intervalChunks,
+      cPeak: this.intervalCPeak,
+      monitorRawPeak: this.monitorRawPeak,
+      monitorCPeak: this.monitorCPeak,
+      monitorClipped: this.monitorClipped,
+      monitorWindowClipped: this.monitorClippedBlocks > 0,
+      monitorAvailable: this.monitorAvailable,
+      monitorSamples: this.monitorSamples,
+      monitorARms: this.monitorSamples ? Math.sqrt(Math.max(0, this.monitorSum) / this.monitorSamples) : 0,
+      monitorGeneration: this.monitorGeneration,
     })
 
-    this.intervalSums = { raw: 0, a: 0, b: 0, c: 0 }
+    this.intervalRawSum = 0
     this.intervalSamples = 0
     this.intervalPeak = 0
-    this.intervalChunks = 0
+    this.intervalCPeak = 0
+    this.intervalASum = 0
+    this.averageIntervalSamples = 0
+    this.averageIntervalClipped = false
+    this.heldIntervalPeak = 0
+    this.heldIntervalCPeak = 0
   }
 }
 
